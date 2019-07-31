@@ -1,16 +1,40 @@
-#![feature(proc_macro)]
+#![feature(proc_macro_diagnostic)]
 
 extern crate proc_macro;
 
-#[feature(full)]
-extern crate syn;
-
-#[macro_use]
-extern crate quote;
-
 use proc_macro::TokenStream;
+#[macro_use] extern crate quote;
 use quote::ToTokens;
-use syn::ExprForLoop;
+
+struct Visit;
+
+impl Visit {
+    fn emit_diagnostic(&self, span: proc_macro::Span, name: &'static str) {
+        proc_macro::Diagnostic::spanned(
+            span, proc_macro::Level::Error, format!(
+                "A `{}` expression is not allowed within the body of a `#[parallel]` loop",
+                name)
+        ).emit();
+    }
+}
+
+impl<'ast> syn::visit::Visit<'ast> for Visit {
+    fn visit_expr_break(&mut self, expr: &'ast syn::ExprBreak) {
+        self.emit_diagnostic(expr.break_token.span.unwrap(), "break");
+    }
+
+    fn visit_expr_continue(&mut self, expr: &'ast syn::ExprContinue) {
+        self.emit_diagnostic(expr.continue_token.span.unwrap(), "continue");
+    }
+
+    fn visit_expr_return(&mut self, expr: &'ast syn::ExprReturn) {
+        self.emit_diagnostic(expr.return_token.span.unwrap(), "return");
+    }
+
+    fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {
+        // Do not inspect.
+    }
+}
 
 /// Converts a for-loop to rayon parallel for_each.
 ///
@@ -19,74 +43,20 @@ use syn::ExprForLoop;
 pub fn parallel(_args: TokenStream, input: TokenStream) -> TokenStream {
     // Return the input unchanged if it failed to parse. The compiler will show
     // the right diagnostics.
-    let input: ExprForLoop =
-        syn::parse(input.clone()).expect("parallel attribute may only be applied to for loops.");
+    let input: syn::ExprForLoop = syn::parse(input.clone())
+        .expect("parallel attribute may only be applied to for loops.");
 
     // TODO support input.label
     // TODO support input.attrs
-    let expr = input.expr.clone().into_tokens();
-    let body = input.body.clone().into_tokens();
-    let pat = input.pat.clone().into_tokens();
+    let expr = input.expr.clone().into_token_stream();
+    let body = input.body.clone().into_token_stream();
+    let pat = input.pat.clone().into_token_stream();
+
+    let mut visitor = Visit;
+    syn::visit::visit_expr_for_loop(&mut visitor, &input);
 
     // TODO check for early returns in the for loop, they would be errors in the parallel version.
     let parallelized = quote!((#expr).into_par_iter().for_each(|#pat| #body));
 
     parallelized.to_string().parse().unwrap()
 }
-
-/*
-Unit test panics, possibly because we are a proc-macro crate:
-
----- tests::for_loop stdout ----
-        thread 'tests::for_loop' panicked at 'proc_macro::__internal::with_sess() called before set_parse_sess()!', libproc_macro\lib.rs:898:9
-stack backtrace:
-   0: std::rt::lang_start_internal
-   1: std::sys::windows::c::TryAcquireSRWLockShared
-   2: std::panicking::take_hook
-   3: std::panicking::take_hook
-   4: std::panicking::rust_panic_with_hook
-   5: proc_macro::__internal::CURRENT_SESS::__getit
-   6: proc_macro::__internal::in_sess
-   7: <proc_macro::TokenStream as core::str::FromStr>::from_str
-   8: core::str::{{impl}}::parse<proc_macro::TokenStream>
-             at C:\projects\rust\src\libcore\str\mod.rs:2534
-   9: alloc::str::{{impl}}::parse<proc_macro::TokenStream>
-             at C:\projects\rust\src\liballoc\str.rs:1798
-  10: rayon_attr::tests::for_loop
-             at .\src\lib.rs:44
-  11: rayon_attr::__test::TESTS::{{closure}}
-             at .\src\lib.rs:43
-  12: core::ops::function::FnOnce::call_once<closure,()>
-             at C:\projects\rust\src\libcore\ops\function.rs:223
-  13: <unknown>
-  14: _rust_maybe_catch_panic
-  15: test::stats::winsorize
-  16: <test::TestOpts as core::fmt::Debug>::fmt
-  17: _rust_maybe_catch_panic
-  18: test::stats::winsorize
-  19: std::sync::mpsc::blocking::WaitToken::wait_max_until
-  20: std::sys::windows::thread::Thread::new
-  21: BaseThreadInitThunk
-  22: RtlUserThreadStart
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proc_macro::TokenStream;
-
-    #[test]
-    fn for_loop() {
-        let input = quote!{
-            for x in 0..100 {
-                println!("{}", x);
-            }
-        }.to_string().parse().unwrap();
-
-        let transformed = parallel(TokenStream::empty(), input);
-        
-        let output = format!("{}", transformed);
-
-        assert_eq!(output, "");
-    }
-}
-*/

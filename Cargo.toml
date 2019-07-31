@@ -1,24 +1,25 @@
 [package]
-name = "rayon-attr"
+name = "parallel-for-macro"
 version = "0.1.0"
-authors = ["krk <keremkat@gmail.com>"]
+authors = ["Jakub Wieczorek <jakub.adam.wieczorek@gmail.com>", "krk <keremkat@gmail.com>"]
 description = "Provides macro attributes that translate existing code to be parallel using rayon."
-repository = "https://github.com/krk/rayon-attr"
+repository = "https://github.com/jakubadamw/parallel-for-rs"
 readme = "README.md"
 keywords = ["rayon", "parallel", "stmt_expr_attributes", "proc_macro_attribute", "thread"]
 categories = ["concurrency"]
 license = "Apache-2.0/MIT"
+edition = "2018"
 
 [badges]
-travis-ci = { repository = "krk/rayon-attr" }
 
 [lib]
-name = "rayon_attr"
+name = "parallel_for_macro"
 proc-macro = true
 
 [dependencies]
-quote = "0.5.2"
-syn = { version = "0.13.1", features = ["full", "extra-traits"] }
+quote = "0.6"
+syn = { version = "0.15.0", features = ["full", "visit"] }
 
 [dev-dependencies]
-rayon = "1.0"
+compiletest_rs = "*"
+rayon = "1.1"
